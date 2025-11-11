@@ -133,13 +133,15 @@ class DataManager:
                 continue
         
         df = pd.DataFrame(dividend_calendar)
-        
+
         if len(df) > 0:
+            # Convert ex_date to timezone-naive to avoid comparison issues
+            df['ex_date'] = pd.to_datetime(df['ex_date']).dt.tz_localize(None)
             df = df.sort_values('ex_date').reset_index(drop=True)
             self.logger.info(f"Found {len(df)} dividend events across {df['ticker'].nunique()} stocks")
         else:
             self.logger.warning("No dividend events found in specified date range")
-        
+
         return df
     
     def _get_dividend_stock_universe(self) -> List[str]:
@@ -212,6 +214,9 @@ class DataManager:
                 ).df
 
                 if len(barset) > 0:
+                    # Normalize timezone to avoid comparison issues
+                    if barset.index.tz is not None:
+                        barset.index = barset.index.tz_localize(None)
                     self.data_cache[cache_key] = barset.copy()
                     self.logger.debug(f"Fetched {len(barset)} bars for {ticker} from Alpaca")
                     return barset
@@ -225,6 +230,9 @@ class DataManager:
                 df = stock.history(start=start_date, end=end_date)
                 if len(df) > 0:
                     df.columns = [c.lower() for c in df.columns]
+                    # Normalize timezone to avoid comparison issues
+                    if df.index.tz is not None:
+                        df.index = df.index.tz_localize(None)
                     self.data_cache[cache_key] = df.copy()
                     self.logger.debug(f"Fetched {len(df)} bars for {ticker} from yfinance")
                     return df
