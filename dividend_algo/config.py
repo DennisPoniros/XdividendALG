@@ -356,24 +356,32 @@ monte_carlo_config = MonteCarloConfig()
 def validate_config():
     """Validate that all configurations are consistent"""
     errors = []
-    
+    warnings = []
+
+    # Check API keys
+    if ALPACA_CONFIG['API_KEY'] == 'YOUR_ALPACA_KEY_HERE':
+        warnings.append("Alpaca API keys not configured (using default placeholder)")
+    if ALPACA_CONFIG['SECRET_KEY'] == 'YOUR_ALPACA_SECRET_HERE':
+        warnings.append("Alpaca secret key not configured (using default placeholder)")
+
     # Check scoring weights sum to 1.0
-    total_weight = (scoring_config.payout_weight + 
-                   scoring_config.growth_weight + 
-                   scoring_config.financial_weight + 
+    total_weight = (scoring_config.payout_weight +
+                   scoring_config.growth_weight +
+                   scoring_config.financial_weight +
                    scoring_config.technical_weight)
     if abs(total_weight - 1.0) > 0.01:
         errors.append(f"Scoring weights sum to {total_weight}, must equal 1.0")
-    
+
     # Check date ranges
     if data_config.train_end >= data_config.test_start:
         errors.append("Train end date must be before test start date")
-    
+
     # Check risk parameters
     if risk_config.max_position_pct * risk_config.max_positions > 1.0:
         errors.append("Max positions could exceed 100% of portfolio")
-    
-    return errors
+
+    # Return both errors and warnings
+    return {'errors': errors, 'warnings': warnings}
 
 def print_config_summary():
     """Print a summary of current configuration"""
@@ -403,11 +411,18 @@ def print_config_summary():
 
 if __name__ == '__main__':
     # Validate configuration
-    errors = validate_config()
-    if errors:
-        print("⚠️  Configuration Errors:")
-        for error in errors:
+    validation = validate_config()
+
+    if validation['errors']:
+        print("❌ Configuration Errors:")
+        for error in validation['errors']:
             print(f"   - {error}")
-    else:
-        print("✅ Configuration validated successfully")
+
+    if validation['warnings']:
+        print("\n⚠️  Configuration Warnings:")
+        for warning in validation['warnings']:
+            print(f"   - {warning}")
+
+    if not validation['errors']:
+        print("\n✅ Configuration validated successfully")
         print_config_summary()

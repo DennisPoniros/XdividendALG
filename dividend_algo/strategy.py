@@ -116,15 +116,14 @@ class DividendCaptureStrategy:
         """
         if len(prices) < 20:
             return False
-        
+
         latest = prices.iloc[-1]
-        
-        # RSI filter
-        if entry_config.use_z_score_filter:
-            rsi = latest['rsi_14']
-            if pd.isna(rsi) or rsi < screening_config.min_rsi or rsi > screening_config.max_rsi:
-                return False
-        
+
+        # RSI filter (always apply basic RSI check from screening config)
+        rsi = latest['rsi_14']
+        if pd.isna(rsi) or rsi < screening_config.min_rsi or rsi > screening_config.max_rsi:
+            return False
+
         # Z-score filter (mean reversion signal)
         if entry_config.use_z_score_filter:
             z_score = latest['z_score']
@@ -157,16 +156,23 @@ class DividendCaptureStrategy:
         Calculate expected return from position
         Combines dividend capture + mean reversion
         """
+        # Validate price
+        if price <= 0:
+            return 0
+
         dividend_amount = stock_info['amount']
-        
+
         # Component 1: Dividend capture (historical inefficiency)
         # Assume price drops 70% of dividend on average
         dividend_return = (dividend_amount * 0.30) / price
-        
+
         # Component 2: Mean reversion potential
         # Distance from long-term mean
         mu = mr_params['mu']
-        current_z = (price - mu) / (mr_params['sigma'] * price) if mr_params['sigma'] > 0 else 0
+        if mr_params['sigma'] > 0 and price > 0:
+            current_z = (price - mu) / (mr_params['sigma'] * price)
+        else:
+            current_z = 0
         
         # If trading below mean, expect reversion upward
         mean_reversion_return = -current_z * 0.01  # 1% per standard deviation
@@ -185,15 +191,19 @@ class DividendCaptureStrategy:
     
     def _calculate_stop_loss(self, entry_price: float, dividend_amount: float) -> float:
         """Calculate stop loss price"""
-        
+
+        # Validate input
+        if entry_price <= 0:
+            return 0
+
         # Hard stop percentage
         hard_stop = entry_price * (1 - exit_config.hard_stop_pct)
-        
+
         # Dividend-based stop (1x dividend)
         if exit_config.use_dividend_stop:
             div_stop = entry_price - dividend_amount
             return max(hard_stop, div_stop)  # Tighter of the two
-        
+
         return hard_stop
     
     def check_exit_signals(self, current_date: str) -> List[Dict]:
@@ -222,10 +232,13 @@ class DividendCaptureStrategy:
                 continue
             
             current_price = prices['close'].iloc[-1]
-            
+
             # Calculate P&L
             entry_price = position['entry_price']
-            pnl_pct = (current_price - entry_price) / entry_price
+            if entry_price > 0:
+                pnl_pct = (current_price - entry_price) / entry_price
+            else:
+                pnl_pct = 0
             
             # Days held
             entry_dt = pd.to_datetime(position['entry_date'])
@@ -352,7 +365,12 @@ class DividendCaptureStrategy:
         # Calculate final P&L
         entry_price = exit_signal['entry_price']
         exit_price = exit_signal['exit_price']
-        pnl_pct = (exit_price - entry_price) / entry_price
+
+        if entry_price > 0:
+            pnl_pct = (exit_price - entry_price) / entry_price
+        else:
+            pnl_pct = 0
+
         pnl_amount = (exit_price - entry_price)
         
         # Build closed position record

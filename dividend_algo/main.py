@@ -26,15 +26,21 @@ def main():
     
     # Step 1: Validate configuration
     print("1️⃣  Validating configuration...")
-    errors = validate_config()
-    
-    if errors:
+    validation = validate_config()
+
+    if validation['errors']:
         print("❌ Configuration errors found:")
-        for error in errors:
+        for error in validation['errors']:
             print(f"   - {error}")
         return
-    
-    print("✅ Configuration validated\n")
+
+    if validation['warnings']:
+        print("\n⚠️  Configuration warnings:")
+        for warning in validation['warnings']:
+            print(f"   - {warning}")
+        print("\nNote: Warnings won't prevent execution, but some features may not work.")
+
+    print("\n✅ Configuration validated\n")
     print_config_summary()
     
     # Step 2: Choose backtest mode
@@ -218,8 +224,11 @@ def parameter_sweep():
         print("\n" + "="*80 + "\n")
         
         # Save results
-        df.to_csv('/mnt/user-data/outputs/parameter_sweep.csv', index=False)
-        print("✅ Results saved to: /mnt/user-data/outputs/parameter_sweep.csv")
+        import os
+        output_dir = '/mnt/user-data/outputs'
+        os.makedirs(output_dir, exist_ok=True)
+        df.to_csv(f'{output_dir}/parameter_sweep.csv', index=False)
+        print(f"✅ Results saved to: {output_dir}/parameter_sweep.csv")
 
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ import seaborn as sns
 from datetime import datetime
 from typing import Dict, List, Optional
 import warnings
+import os
 warnings.filterwarnings('ignore')
 
 from config import analytics_config
@@ -32,9 +33,12 @@ class PerformanceAnalytics:
         
     def generate_all_plots(self, save_dir: str = '/mnt/user-data/outputs'):
         """Generate all visualization plots"""
-        
+
+        # Create output directory if it doesn't exist
+        os.makedirs(save_dir, exist_ok=True)
+
         print("\n📊 Generating performance visualizations...")
-        
+
         plots_generated = []
         
         # 1. Equity curve
@@ -339,10 +343,15 @@ class PerformanceAnalytics:
     
     def generate_html_report(self, save_path: str = '/mnt/user-data/outputs/backtest_report.html'):
         """Generate comprehensive HTML report"""
-        
+
         if not analytics_config.generate_html_report:
             return
-        
+
+        # Create output directory if it doesn't exist
+        save_dir = os.path.dirname(save_path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+
         print("\n📝 Generating HTML report...")
         
         html = f"""

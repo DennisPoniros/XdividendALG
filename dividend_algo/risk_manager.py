@@ -8,7 +8,7 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional
 from scipy import stats
 
-from config import risk_config, backtest_config
+from config import risk_config, backtest_config, analytics_config
 
 
 class RiskManager:
@@ -30,38 +30,46 @@ class RiskManager:
                                 current_price: float) -> int:
         """
         Calculate optimal position size using Kelly Criterion
-        
+
         Args:
             signal: Entry signal with expected return
             current_positions: Dictionary of current positions
             current_price: Current stock price
-            
+
         Returns:
             Number of shares to buy
         """
+        # Validate inputs
+        if current_price <= 0 or self.current_capital <= 0:
+            return 0
+
         # Kelly Criterion: f* = (p*b - q) / b
         # Where p = win rate, b = win/loss ratio, q = 1-p
-        
+
         p = risk_config.estimated_win_rate
         b = risk_config.estimated_win_loss_ratio
         q = 1 - p
-        
+
+        # Avoid division by zero
+        if b == 0:
+            return 0
+
         kelly_fraction = (p * b - q) / b
         kelly_adjusted = kelly_fraction * risk_config.kelly_safety_factor
-        
+
         # Maximum position size based on Kelly
         kelly_position_value = self.current_capital * kelly_adjusted
-        
+
         # Apply maximum position percentage constraint
         max_position_value = self.current_capital * risk_config.max_position_pct
-        
+
         # Take the minimum of Kelly and max position
         target_position_value = min(kelly_position_value, max_position_value)
-        
+
         # Check available cash
         available_cash = self.cash * (1 - risk_config.min_cash_reserve)
         target_position_value = min(target_position_value, available_cash)
-        
+
         # Convert to shares
         shares = int(target_position_value / current_price)
         
@@ -317,7 +325,7 @@ class RiskManager:
         
         # Calculate Sharpe (if we have enough data)
         if len(returns) >= 30:
-            risk_free_daily = (1 + risk_config.risk_free_rate) ** (1/252) - 1
+            risk_free_daily = (1 + analytics_config.risk_free_rate) ** (1/252) - 1
             excess_returns = returns - risk_free_daily
             sharpe = excess_returns.mean() / excess_returns.std() * np.sqrt(252) if excess_returns.std() > 0 else 0
             metrics['sharpe_ratio'] = sharpe

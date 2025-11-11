@@ -103,11 +103,15 @@ class DataManager:
                     for date, row in relevant_divs.iterrows():
                         if row.get('Dividends', 0) > 0:
                             # Calculate yield
-                            hist = stock.history(start=date - timedelta(days=5), 
+                            hist = stock.history(start=date - timedelta(days=5),
                                                end=date)
                             if len(hist) > 0:
                                 price = hist['Close'].iloc[-1]
-                                div_yield = (row['Dividends'] / price) if price > 0 else 0
+                                # Validate price before calculating yield
+                                if price > 0:
+                                    div_yield = row['Dividends'] / price
+                                else:
+                                    div_yield = 0
                             else:
                                 div_yield = 0
                             

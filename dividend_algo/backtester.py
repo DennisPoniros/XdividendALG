@@ -153,15 +153,30 @@ class Backtester:
         if len(self.equity_curve) >= 2:
             returns = self._get_returns_series()
             should_stop, reason = self.risk_manager.should_stop_trading(returns)
-            
+
             if should_stop:
                 print(f"\n🛑 CIRCUIT BREAKER TRIGGERED: {reason}")
-                # Close all positions
+                # Close all positions at current market prices
                 for ticker in list(self.strategy.positions.keys()):
+                    # Get current price for proper exit valuation
+                    try:
+                        prices = self.dm.get_stock_prices(
+                            ticker,
+                            (pd.to_datetime(current_date) - timedelta(days=5)).strftime('%Y-%m-%d'),
+                            current_date
+                        )
+                        if len(prices) > 0:
+                            current_price = prices['close'].iloc[-1]
+                        else:
+                            # Fallback to entry price if no data available
+                            current_price = self.strategy.positions[ticker]['entry_price']
+                    except:
+                        current_price = self.strategy.positions[ticker]['entry_price']
+
                     exit_signal = {
                         'ticker': ticker,
                         'exit_date': current_date,
-                        'exit_price': self.strategy.positions[ticker]['entry_price'],
+                        'exit_price': current_price,
                         'exit_reason': 'circuit_breaker',
                         **self.strategy.positions[ticker]
                     }
@@ -349,7 +364,7 @@ class Backtester:
         # Volatility
         daily_vol = returns.std()
         annual_vol = daily_vol * np.sqrt(252)
-        
+
         # Risk-free rate (daily)
         rf_daily = (1 + analytics_config.risk_free_rate) ** (1/252) - 1
         
@@ -569,10 +584,16 @@ class Backtester:
         
         return {}
     
-    def export_results(self, filepath: str = '/home/claude/dividend_algo/backtest_results.csv'):
+    def export_results(self, filepath: str = '/mnt/user-data/outputs/backtest_results.csv'):
         """Export trade log to CSV"""
-        
+
         if len(self.trade_log) > 0:
+            # Create output directory if it doesn't exist
+            import os
+            save_dir = os.path.dirname(filepath)
+            if save_dir:
+                os.makedirs(save_dir, exist_ok=True)
+
             df = pd.DataFrame(self.trade_log)
             df.to_csv(filepath, index=False)
             print(f"✅ Results exported to {filepath}")
