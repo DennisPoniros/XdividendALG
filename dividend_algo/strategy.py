@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 
 from config import (
-    entry_config, exit_config, risk_config, screening_config
+    entry_config, exit_config, risk_config, screening_config,
+    TECHNICAL_ANALYSIS_CONSTANTS, DIVIDEND_STRATEGY_CONSTANTS
 )
 from data_manager import DataManager
 
@@ -47,12 +48,14 @@ class DividendCaptureStrategy:
         
         for idx, row in screened_stocks.iterrows():
             ticker = row['ticker']
-            
+
             # Get recent price data for technical analysis
-            lookback_start = (current_dt - timedelta(days=60)).strftime('%Y-%m-%d')
+            lookback_days = TECHNICAL_ANALYSIS_CONSTANTS['LOOKBACK_DAYS_DEFAULT']
+            lookback_start = (current_dt - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
             prices = self.dm.get_stock_prices(ticker, lookback_start, current_date)
-            
-            if len(prices) < 30:  # Need sufficient history
+
+            min_history = TECHNICAL_ANALYSIS_CONSTANTS['MIN_PRICE_HISTORY_DAYS']
+            if len(prices) < min_history:  # Need sufficient history
                 continue
             
             # Calculate technical indicators
@@ -163,24 +166,34 @@ class DividendCaptureStrategy:
         dividend_amount = stock_info['amount']
 
         # Component 1: Dividend capture (historical inefficiency)
-        # Assume price drops 70% of dividend on average
-        dividend_return = (dividend_amount * 0.30) / price
+        # Capture the inefficiency portion of dividend drop
+        alpha_capture = DIVIDEND_STRATEGY_CONSTANTS['DIVIDEND_CAPTURE_ALPHA']
+        dividend_return = (dividend_amount * alpha_capture) / price
 
         # Component 2: Mean reversion potential
-        # Distance from long-term mean
+        # Distance from long-term mean (standardized)
         mu = mr_params['mu']
-        if mr_params['sigma'] > 0 and price > 0:
-            current_z = (price - mu) / (mr_params['sigma'] * price)
+        sigma = mr_params['sigma']
+
+        if sigma > 0 and mu > 0 and price > 0:
+            # Calculate z-score consistently: (current - mean) / std
+            # Since OU params are in log space, work in log space
+            log_price = np.log(price)
+            log_mu = np.log(mu)
+            current_z = (log_price - log_mu) / sigma if sigma > 0 else 0
         else:
             current_z = 0
-        
-        # If trading below mean, expect reversion upward
-        mean_reversion_return = -current_z * 0.01  # 1% per standard deviation
-        
+
+        # If trading below mean (negative z), expect reversion upward (positive return)
+        # If trading above mean (positive z), expect reversion downward (negative return)
+        mr_sensitivity = DIVIDEND_STRATEGY_CONSTANTS['MEAN_REVERSION_SENSITIVITY']
+        mean_reversion_return = -current_z * mr_sensitivity
+
         # Component 3: Momentum continuation (small factor)
         momentum = prices['momentum_20'].iloc[-1]
         if not pd.isna(momentum):
-            momentum_return = momentum * 0.10  # 10% of recent momentum
+            momentum_factor = DIVIDEND_STRATEGY_CONSTANTS['MOMENTUM_CONTINUATION_FACTOR']
+            momentum_return = momentum * momentum_factor
         else:
             momentum_return = 0
         

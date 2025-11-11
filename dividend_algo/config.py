@@ -19,6 +19,31 @@ ALPACA_CONFIG = {
 }
 
 # ============================================================================
+# SYSTEM CONSTANTS
+# ============================================================================
+
+# Technical Analysis Constants
+TECHNICAL_ANALYSIS_CONSTANTS = {
+    'MIN_PRICE_HISTORY_DAYS': 30,  # Minimum days of price history required
+    'LOOKBACK_DAYS_DEFAULT': 60,  # Default lookback for technical indicators
+    'TRADING_DAYS_PER_YEAR': 252,  # Number of trading days for annualization
+}
+
+# Dividend Strategy Constants
+DIVIDEND_STRATEGY_CONSTANTS = {
+    'EXPECTED_DIV_PRICE_DROP_PCT': 0.70,  # Historical avg: price drops 70% of dividend
+    'DIVIDEND_CAPTURE_ALPHA': 0.30,  # Expected capture: 30% of dividend (1 - drop)
+    'MEAN_REVERSION_SENSITIVITY': 0.01,  # 1% expected return per std dev from mean
+    'MOMENTUM_CONTINUATION_FACTOR': 0.10,  # 10% of recent momentum expected to continue
+}
+
+# Data Fetching Constants
+DATA_FETCH_CONSTANTS = {
+    'PRICE_LOOKBACK_DAYS': 5,  # Days to look back for current price
+    'DIVIDEND_HISTORY_WINDOW': 30,  # Days ahead to search for dividends
+}
+
+# ============================================================================
 # DATA PARAMETERS
 # ============================================================================
 

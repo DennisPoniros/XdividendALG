@@ -10,6 +10,8 @@ from typing import Dict, List, Tuple, Optional
 import warnings
 warnings.filterwarnings('ignore')
 
+from logger import get_logger
+
 try:
     import alpaca_trade_api as tradeapi
     ALPACA_AVAILABLE = True
@@ -34,8 +36,9 @@ class DataManager:
     """
     Unified data manager for fetching and processing market data
     """
-    
+
     def __init__(self):
+        self.logger = get_logger(__name__)
         self.alpaca_api = None
         self.data_cache = {}
         self._initialize_alpaca()
@@ -43,9 +46,9 @@ class DataManager:
     def _initialize_alpaca(self):
         """Initialize Alpaca API connection"""
         if not ALPACA_AVAILABLE:
-            print("⚠️  Alpaca API not available")
+            self.logger.warning("Alpaca API not available - package not installed")
             return
-        
+
         try:
             self.alpaca_api = tradeapi.REST(
                 key_id=ALPACA_CONFIG['API_KEY'],
@@ -54,10 +57,10 @@ class DataManager:
             )
             # Test connection
             account = self.alpaca_api.get_account()
-            print(f"✅ Alpaca connected - Account Status: {account.status}")
+            self.logger.info(f"Alpaca connected - Account Status: {account.status}")
         except Exception as e:
-            print(f"⚠️  Alpaca connection failed: {e}")
-            print("    Please check your API credentials in config.py")
+            self.logger.error(f"Alpaca connection failed: {e}")
+            self.logger.warning("Please check your API credentials in config.py")
             self.alpaca_api = None
     
     def get_dividend_calendar(self, start_date: str, end_date: str, 
@@ -76,7 +79,7 @@ class DataManager:
         if not YFINANCE_AVAILABLE:
             raise ImportError("yfinance required for dividend data")
         
-        print(f"📅 Fetching dividend calendar: {start_date} to {end_date}")
+        self.logger.info(f"Fetching dividend calendar: {start_date} to {end_date}")
         
         # Get list of potential dividend-paying stocks
         tickers = self._get_dividend_stock_universe()
@@ -130,9 +133,9 @@ class DataManager:
         
         if len(df) > 0:
             df = df.sort_values('ex_date').reset_index(drop=True)
-            print(f"✅ Found {len(df)} dividend events across {df['ticker'].nunique()} stocks")
+            self.logger.info(f"Found {len(df)} dividend events across {df['ticker'].nunique()} stocks")
         else:
-            print("⚠️  No dividend events found")
+            self.logger.warning("No dividend events found in specified date range")
         
         return df
     
@@ -299,9 +302,10 @@ class DataManager:
         
         # RSI
         df['rsi_14'] = self._calculate_rsi(df['close'], period=14)
-        
-        # Z-Score (for mean reversion)
-        df['z_score'] = (df['close'] - df['sma_20']) / df['returns'].rolling(window=20).std()
+
+        # Z-Score (for mean reversion) - uses price std, not returns std
+        price_std = df['close'].rolling(window=20).std()
+        df['z_score'] = (df['close'] - df['sma_20']) / price_std.where(price_std > 0, np.nan)
         
         # VWAP
         df['vwap'] = (df['close'] * df['volume']).cumsum() / df['volume'].cumsum()
