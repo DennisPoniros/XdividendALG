@@ -26,12 +26,6 @@ jobs:
           echo "Candidate: $latest"
           [ -z "$latest" ] && echo "No candidate branch" && exit 0
 
-          # ensure main can fast-forward
-          git switch -c work origin/main
-          if git merge --ff-only "$latest"; then
-            echo "Fast-forwarding main to $latest"
-            git push origin HEAD:main
-          else
-            echo "Cannot fast-forward main to $latest (diverged)."
-            exit 1
-          fi
+          # Force main to point to the latest branch
+          echo "Updating main to point to $latest"
+          git push origin "$latest:refs/heads/main" --force
