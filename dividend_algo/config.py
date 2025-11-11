@@ -13,8 +13,8 @@ from datetime import datetime
 
 # Alpaca API (Paper Trading)
 ALPACA_CONFIG = {
-    'API_KEY': 'YOUR_ALPACA_KEY_HERE',
-    'SECRET_KEY': 'YOUR_ALPACA_SECRET_HERE',
+    'API_KEY': 'PK22RS3CKJJQWEC7IVGIIMXPMS',
+    'SECRET_KEY': '9AdsbCdr62JnYTJfm2Ctz84WFYqGs77qxrPv8HtD7xUC',
     'BASE_URL': 'https://paper-api.alpaca.markets'  # Paper trading
 }
 
