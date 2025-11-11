@@ -1,0 +1,31 @@
+name: Promote most recent branch to main
+on:
+  push:
+    branches: ['**']
+    paths-ignore: ['README.md', 'docs/**', '.github/**']   # optional
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'  # optional
+
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  pick-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - run: |
+          set -euo pipefail
+          git fetch --all --prune
+
+          # pick newest remote branch excluding main and HEAD
+          latest=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin \
+                   | grep -vE '^origin/(HEAD|main)$' | head -n1)
+          echo "Candidate: $latest"
+          [ -z "$latest" ] && echo "No candidate branch" && exit 0
+
+          # Force main to point to the latest branch
+          echo "Updating main to point to $latest"
+          git push origin "$latest:refs/heads/main" --force
