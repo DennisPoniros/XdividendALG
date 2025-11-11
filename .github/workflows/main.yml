@@ -1,0 +1,23 @@
+name: Promote most recent branch to main
+on:
+  schedule: [{cron: '*/15 * * * *'}]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pick-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - run: |
+          git fetch --all --prune
+          latest=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin \
+                   | grep -vE '^origin/(HEAD|main)$' | head -n1)
+          [ -z "$latest" ] && exit 0
+          git switch -c work
+          git switch -c main origin/main || git switch main
+          git merge --ff-only "$latest"
+          git push origin main
