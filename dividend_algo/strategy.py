@@ -42,7 +42,7 @@ class DividendCaptureStrategy:
             return []
         
         signals = []
-        current_dt = pd.to_datetime(current_date)
+        current_dt = pd.to_datetime(current_date).tz_localize(None)
         
         print(f"\n🎯 Generating entry signals for {len(screened_stocks)} candidates...")
         
@@ -230,20 +230,20 @@ class DividendCaptureStrategy:
             List of exit signals
         """
         exit_signals = []
-        current_dt = pd.to_datetime(current_date)
-        
+        current_dt = pd.to_datetime(current_date).tz_localize(None)
+
         for ticker, position in self.positions.items():
-            
+
             # Get current price
             prices = self.dm.get_stock_prices(
                 ticker,
                 (current_dt - timedelta(days=30)).strftime('%Y-%m-%d'),
                 current_date
             )
-            
+
             if len(prices) == 0:
                 continue
-            
+
             current_price = prices['close'].iloc[-1]
 
             # Calculate P&L
@@ -252,13 +252,13 @@ class DividendCaptureStrategy:
                 pnl_pct = (current_price - entry_price) / entry_price
             else:
                 pnl_pct = 0
-            
-            # Days held
-            entry_dt = pd.to_datetime(position['entry_date'])
+
+            # Days held (ensure timezone-naive for consistent date math)
+            entry_dt = pd.to_datetime(position['entry_date']).tz_localize(None)
             days_held = (current_dt - entry_dt).days
-            
-            # Days since ex-dividend
-            ex_div_dt = pd.to_datetime(position['ex_div_date'])
+
+            # Days since ex-dividend (ensure timezone-naive for consistent date math)
+            ex_div_dt = pd.to_datetime(position['ex_div_date']).tz_localize(None)
             days_since_ex_div = (current_dt - ex_div_dt).days
             
             # Check exit conditions

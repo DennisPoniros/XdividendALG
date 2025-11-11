@@ -162,7 +162,7 @@ class Backtester:
                     try:
                         prices = self.dm.get_stock_prices(
                             ticker,
-                            (pd.to_datetime(current_date) - timedelta(days=5)).strftime('%Y-%m-%d'),
+                            (pd.to_datetime(current_date).tz_localize(None) - timedelta(days=5)).strftime('%Y-%m-%d'),
                             current_date
                         )
                         if len(prices) > 0:
@@ -305,7 +305,7 @@ class Backtester:
             try:
                 prices = self.dm.get_stock_prices(
                     ticker,
-                    (pd.to_datetime(current_date) - timedelta(days=5)).strftime('%Y-%m-%d'),
+                    (pd.to_datetime(current_date).tz_localize(None) - timedelta(days=5)).strftime('%Y-%m-%d'),
                     current_date
                 )
                 

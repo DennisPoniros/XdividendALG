@@ -465,11 +465,12 @@ class DataManager:
         Returns:
             Filtered DataFrame with quality scores
         """
-        current_dt = pd.to_datetime(current_date)
-        
-        # Calculate days to ex-dividend
+        # Ensure current_date is timezone-naive for consistent date math
+        current_dt = pd.to_datetime(current_date).tz_localize(None)
+
+        # Calculate days to ex-dividend (ex_date already normalized to tz-naive in get_dividend_calendar)
         dividend_calendar['days_to_ex_div'] = (
-            pd.to_datetime(dividend_calendar['ex_date']) - current_dt
+            dividend_calendar['ex_date'] - current_dt
         ).dt.days
         
         # Filter by entry window
