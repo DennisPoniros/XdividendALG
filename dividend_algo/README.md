@@ -8,7 +8,7 @@ This algorithm combines multiple alpha sources:
 - **Dividend capture** from ex-dividend price inefficiencies (~2-3% annual alpha)
 - **Mean reversion** from post-dividend recovery (~1-2% annual alpha)  
 - **Volatility premium** from IV-RV spread (~1-2% annual alpha)
-- **Quality selection** from fundamental screening (~1-2% annual alpha)
+- **Quality selection** from fundamental screening (~1-2% annual alpha)(a)
 
 **Expected Performance:**
 - Annual Return: 8-15%
