@@ -41,6 +41,9 @@ class DataManager:
         self.logger = get_logger(__name__)
         self.alpaca_api = None
         self.data_cache = {}
+        self.cache_hits = 0
+        self.cache_misses = 0
+        self.api_call_count = 0
         self._initialize_alpaca()
     
     def _initialize_alpaca(self):
@@ -172,20 +175,31 @@ class DataManager:
         # Remove duplicates
         return list(set(dividend_universe))
     
-    def get_stock_prices(self, ticker: str, start_date: str, 
+    def get_stock_prices(self, ticker: str, start_date: str,
                         end_date: str, timeframe: str = '1Day') -> pd.DataFrame:
         """
         Get historical price data for a ticker
-        
+        Implements caching to reduce API calls
+
         Args:
             ticker: Stock ticker
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             timeframe: '1Day', '1Hour', '5Min', etc.
-            
+
         Returns:
             DataFrame with OHLCV data
         """
+        # Check cache first
+        cache_key = f"{ticker}_{start_date}_{end_date}_{timeframe}"
+        if cache_key in self.data_cache:
+            self.cache_hits += 1
+            self.logger.debug(f"Cache hit for {ticker} ({start_date} to {end_date})")
+            return self.data_cache[cache_key].copy()
+
+        self.cache_misses += 1
+        self.api_call_count += 1
+
         # Try Alpaca first, fallback to yfinance
         if self.alpaca_api:
             try:
@@ -196,22 +210,30 @@ class DataManager:
                     end=end_date,
                     adjustment='all'
                 ).df
-                
+
                 if len(barset) > 0:
+                    self.data_cache[cache_key] = barset.copy()
+                    self.logger.debug(f"Fetched {len(barset)} bars for {ticker} from Alpaca")
                     return barset
             except Exception as e:
-                print(f"⚠️  Alpaca fetch failed for {ticker}: {e}")
-        
+                self.logger.warning(f"Alpaca fetch failed for {ticker}: {e}")
+
         # Fallback to yfinance
         if YFINANCE_AVAILABLE:
             try:
                 stock = yf.Ticker(ticker)
                 df = stock.history(start=start_date, end=end_date)
-                df.columns = [c.lower() for c in df.columns]
-                return df
+                if len(df) > 0:
+                    df.columns = [c.lower() for c in df.columns]
+                    self.data_cache[cache_key] = df.copy()
+                    self.logger.debug(f"Fetched {len(df)} bars for {ticker} from yfinance")
+                    return df
+                else:
+                    self.logger.warning(f"No data returned for {ticker}")
             except Exception as e:
-                print(f"⚠️  yfinance fetch failed for {ticker}: {e}")
-        
+                self.logger.error(f"yfinance fetch failed for {ticker}: {e}")
+
+        self.logger.error(f"Failed to fetch data for {ticker} from all sources")
         return pd.DataFrame()
     
     def get_fundamentals(self, ticker: str) -> Dict:
@@ -591,8 +613,27 @@ class DataManager:
         
         # Total score
         total_score = sum(scores.values())
-        
+
         return round(total_score, 2)
+
+    def get_cache_stats(self) -> Dict:
+        """Get cache statistics for monitoring API efficiency"""
+        total_calls = self.cache_hits + self.cache_misses
+        hit_rate = (self.cache_hits / total_calls * 100) if total_calls > 0 else 0
+
+        return {
+            'cache_hits': self.cache_hits,
+            'cache_misses': self.cache_misses,
+            'total_requests': total_calls,
+            'hit_rate_pct': round(hit_rate, 2),
+            'api_calls': self.api_call_count,
+            'cached_items': len(self.data_cache)
+        }
+
+    def clear_cache(self):
+        """Clear data cache to free memory"""
+        self.data_cache.clear()
+        self.logger.info("Data cache cleared")
 
 
 # ============================================================================
