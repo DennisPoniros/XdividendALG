@@ -108,24 +108,32 @@ class DataManager:
                 if len(relevant_divs) > 0:
                     for date, row in relevant_divs.iterrows():
                         if row.get('Dividends', 0) > 0:
-                            # Calculate yield
+                            # Calculate ANNUALIZED yield using trailing 12-month dividends
                             hist = stock.history(start=date - timedelta(days=5),
                                                end=date)
                             if len(hist) > 0:
                                 price = hist['Close'].iloc[-1]
                                 # Validate price before calculating yield
                                 if price > 0:
-                                    div_yield = row['Dividends'] / price
+                                    # Get trailing 12-month dividends for accurate annual yield
+                                    try:
+                                        ttm_start = date - timedelta(days=365)
+                                        ttm_dividends = dividends[(dividends.index >= ttm_start) & (dividends.index <= date)]
+                                        annual_dividend = ttm_dividends.sum() if len(ttm_dividends) > 0 else row['Dividends'] * 4  # Fallback: assume quarterly
+                                        div_yield = annual_dividend / price
+                                    except:
+                                        # Fallback: assume quarterly payments (most common)
+                                        div_yield = (row['Dividends'] * 4) / price
                                 else:
                                     div_yield = 0
                             else:
                                 div_yield = 0
-                            
+
                             dividend_calendar.append({
                                 'ticker': ticker,
                                 'ex_date': date,
                                 'amount': row['Dividends'],
-                                'yield': div_yield
+                                'yield': div_yield  # Now properly annualized
                             })
             
             except Exception as e:
