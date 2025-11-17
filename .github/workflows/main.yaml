@@ -2,7 +2,7 @@ name: Promote most recent branch to main
 on:
   push:
     branches: ['**']
-    paths-ignore: ['README.md', 'docs/**', '.github/**']   # optional
+    paths-ignore: ['README.md', 'docs/**']   # Removed .github/** so workflow updates trigger
   workflow_dispatch:
   schedule:
     - cron: '*/15 * * * *'  # optional
@@ -27,5 +27,7 @@ jobs:
           [ -z "$latest" ] && echo "No candidate branch" && exit 0
 
           # Force main to point to the latest branch
-          echo "Updating main to point to $latest"
-          git push origin "$latest:refs/heads/main" --force
+          # Get the commit SHA from the remote branch
+          latest_sha=$(git rev-parse "$latest")
+          echo "Updating main to $latest (SHA: $latest_sha)"
+          git push origin "$latest_sha:refs/heads/main" --force
