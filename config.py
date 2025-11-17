@@ -225,8 +225,9 @@ class RiskConfig:
     # Risk metrics
     max_portfolio_var_95: float = 0.02  # 2% daily VaR at 95%
     
-    # Circuit breakers
-    max_daily_loss_pct: float = 0.03  # -3% daily
+    # Circuit breakers (can be disabled for testing)
+    use_circuit_breakers: bool = False  # Set to False to disable stop losses/circuit breakers
+    max_daily_loss_pct: float = 0.03  # -3% daily (ignored if use_circuit_breakers=False)
     max_monthly_loss_pct: float = 0.08  # -8% monthly
     max_drawdown_pct: float = 0.12  # -12% max drawdown
     

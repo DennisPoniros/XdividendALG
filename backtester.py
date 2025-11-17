@@ -37,7 +37,14 @@ class Backtester:
         self.equity_curve = []
         self.trade_log = []
         self.daily_positions = []
-        
+
+        # Cost tracking (to separate transaction costs from P&L)
+        self.total_entry_costs = 0
+        self.total_exit_costs = 0
+        self.total_slippage = 0
+        self.total_commissions = 0
+        self.total_sec_fees = 0
+
         # Performance cache
         self.performance_metrics = {}
     
@@ -149,8 +156,8 @@ class Backtester:
             'num_positions': len(self.strategy.positions)
         })
         
-        # 8. Check circuit breakers
-        if len(self.equity_curve) >= 2:
+        # 8. Check circuit breakers (if enabled)
+        if risk_config.use_circuit_breakers and len(self.equity_curve) >= 2:
             returns = self._get_returns_series()
             should_stop, reason = self.risk_manager.should_stop_trading(returns)
 
@@ -216,14 +223,20 @@ class Backtester:
         signal['shares'] = shares
         signal['position_value'] = shares * effective_entry_price
         signal['entry_costs'] = slippage_cost + commission + sec_fee
-        
+
+        # Track costs separately
+        self.total_entry_costs += slippage_cost + commission + sec_fee
+        self.total_slippage += slippage_cost
+        self.total_commissions += commission
+        self.total_sec_fees += sec_fee
+
         # Open position
         self.strategy.open_position(signal)
-        
+
         # Update cash
         self.risk_manager.update_cash(-total_cost)
-        
-        # Log trade
+
+        # Log trade with detailed cost breakdown
         self.trade_log.append({
             'date': current_date,
             'action': 'BUY',
@@ -231,7 +244,10 @@ class Backtester:
             'shares': shares,
             'price': effective_entry_price,
             'value': position_value,
-            'costs': slippage_cost + commission + sec_fee
+            'costs': slippage_cost + commission + sec_fee,
+            'slippage': slippage_cost,
+            'commission': commission,
+            'sec_fee': sec_fee
         })
         
         return True
@@ -269,15 +285,30 @@ class Backtester:
         # Update exit signal
         exit_signal['exit_price'] = effective_exit_price
         exit_signal['exit_costs'] = slippage_cost + commission + sec_fee
-        
+
+        # Track costs separately
+        self.total_exit_costs += slippage_cost + commission + sec_fee
+        self.total_slippage += slippage_cost
+        self.total_commissions += commission
+        self.total_sec_fees += sec_fee
+
         # Close position
         closed_position = self.strategy.close_position(exit_signal)
-        
+
         if closed_position:
             # Update cash
             self.risk_manager.update_cash(total_proceeds)
-            
-            # Log trade
+
+            # Calculate P&L breakdown
+            total_pnl = closed_position['pnl_amount_per_share'] * shares
+            entry_costs = position.get('entry_costs', 0)
+            exit_costs = slippage_cost + commission + sec_fee
+            total_costs = entry_costs + exit_costs
+
+            # Price movement P&L (excluding costs)
+            price_movement_pnl = (exit_price - position['entry_price']) * shares
+
+            # Log trade with detailed breakdown
             self.trade_log.append({
                 'date': current_date,
                 'action': 'SELL',
@@ -286,10 +317,17 @@ class Backtester:
                 'price': effective_exit_price,
                 'value': position_value,
                 'costs': slippage_cost + commission + sec_fee,
-                'pnl': closed_position['pnl_amount_per_share'] * shares,
-                'pnl_pct': closed_position['pnl_pct']
+                'slippage': slippage_cost,
+                'commission': commission,
+                'sec_fee': sec_fee,
+                'pnl': total_pnl,
+                'pnl_pct': closed_position['pnl_pct'],
+                'price_movement_pnl': price_movement_pnl,
+                'total_costs_paid': total_costs,
+                'pnl_before_costs': price_movement_pnl,
+                'exit_reason': exit_signal.get('exit_reason', 'unknown')
             })
-        
+
         return True
     
     def _calculate_portfolio_value(self, current_date: str) -> float:
@@ -444,7 +482,17 @@ class Backtester:
             
             # Monthly returns
             'monthly_returns': equity_df['returns'].resample('M').apply(lambda x: (1 + x).prod() - 1),
-            
+
+            # Transaction cost breakdown
+            'total_transaction_costs': self.total_entry_costs + self.total_exit_costs,
+            'total_entry_costs': self.total_entry_costs,
+            'total_exit_costs': self.total_exit_costs,
+            'total_slippage': self.total_slippage,
+            'total_commissions': self.total_commissions,
+            'total_sec_fees': self.total_sec_fees,
+            'costs_as_pct_of_capital': (self.total_entry_costs + self.total_exit_costs) / self.initial_capital * 100,
+            'avg_cost_per_trade': (self.total_entry_costs + self.total_exit_costs) / (trade_stats['total_trades'] / 2) if trade_stats['total_trades'] > 0 else 0,
+
             # DataFrames for plotting
             'equity_curve': equity_df,
             'returns': returns,
@@ -487,7 +535,17 @@ class Backtester:
         print(f"  Avg Loss:            {m['avg_loss_pct']:>15.2f}%")
         print(f"  Profit Factor:       {m['profit_factor']:>15.2f}")
         print(f"  Avg Hold Period:     {m['avg_holding_days']:>15.1f} days")
-        
+
+        print("\n💸 TRANSACTION COSTS (Slippage + Fees)")
+        print(f"  Total Costs:         ${m['total_transaction_costs']:>15,.2f}")
+        print(f"  Entry Costs:         ${m['total_entry_costs']:>15,.2f}")
+        print(f"  Exit Costs:          ${m['total_exit_costs']:>15,.2f}")
+        print(f"  Slippage:            ${m['total_slippage']:>15,.2f}")
+        print(f"  Commissions:         ${m['total_commissions']:>15,.2f}")
+        print(f"  SEC Fees:            ${m['total_sec_fees']:>15,.2f}")
+        print(f"  Costs as % Capital:  {m['costs_as_pct_of_capital']:>15.3f}%")
+        print(f"  Avg Cost/Trade:      ${m['avg_cost_per_trade']:>15,.2f}")
+
         print("\n🎯 DAILY STATISTICS")
         print(f"  Avg Daily Return:    {m['avg_daily_return_pct']:>15.4f}%")
         print(f"  Best Day:            {m['best_day_pct']:>15.2f}%")
