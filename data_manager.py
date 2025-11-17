@@ -146,7 +146,14 @@ class DataManager:
             # Convert ex_date to timezone-naive to avoid comparison issues
             df['ex_date'] = pd.to_datetime(df['ex_date']).dt.tz_localize(None)
             df = df.sort_values('ex_date').reset_index(drop=True)
+
+            # Count events per ticker
+            events_per_ticker = df.groupby('ticker').size()
+            multi_event_tickers = events_per_ticker[events_per_ticker > 1]
+
             self.logger.info(f"Found {len(df)} dividend events across {df['ticker'].nunique()} stocks")
+            if len(multi_event_tickers) > 0:
+                self.logger.info(f"  {len(multi_event_tickers)} stocks with multiple events: {dict(multi_event_tickers)}")
         else:
             self.logger.warning("No dividend events found in specified date range")
 
