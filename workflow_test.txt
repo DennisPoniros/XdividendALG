@@ -1,0 +1,9 @@
+Workflow Test File
+==================
+
+Created at: 2024-11-17
+Purpose: Testing automatic promotion of latest branch to main
+
+If you see this file on the main branch, the workflow is working correctly!
+
+Branch: claude/unzip-and-push-folder-011CV2mdn5CXicVgZwjtHEbs
