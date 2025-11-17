@@ -598,7 +598,7 @@ class DataManager:
         scores = {}
         
         # 1. Payout ratio score (25%)
-        payout = fundamentals.get('payout_ratio', 0)
+        payout = fundamentals.get('payout_ratio') or 0
         if screening_config.optimal_payout_min <= payout <= screening_config.optimal_payout_max:
             payout_score = 100
         else:
@@ -608,23 +608,23 @@ class DataManager:
                 abs(payout - screening_config.optimal_payout_max)
             )
             payout_score = max(0, 100 - distance * 200)  # 50% penalty per 0.1 distance
-        
+
         scores['payout'] = payout_score * scoring_config.payout_weight
-        
+
         # 2. Growth score (25%)
-        div_growth = fundamentals.get('dividend_growth_3y', 0)
+        div_growth = fundamentals.get('dividend_growth_3y') or 0
         growth_score = min(100, max(0, div_growth * 1000))  # 10% growth = 100 points
         scores['growth'] = growth_score * scoring_config.growth_weight
         
         # 3. Financial health score (25%)
-        # Sub-scores
-        debt_to_equity = fundamentals.get('debt_to_equity', 0.5)
+        # Sub-scores (handle None values explicitly)
+        debt_to_equity = fundamentals.get('debt_to_equity') or 0.5
         debt_score = max(0, 100 - (debt_to_equity / screening_config.max_debt_to_equity) * 100)
-        
-        roe = fundamentals.get('roe', 0)
-        roe_score = min(100, (roe / screening_config.min_roe) * 100)
-        
-        pe = fundamentals.get('pe_ratio', 15)
+
+        roe = fundamentals.get('roe') or 0
+        roe_score = min(100, (roe / screening_config.min_roe) * 100) if screening_config.min_roe > 0 else 0
+
+        pe = fundamentals.get('pe_ratio') or 15
         if pe > 0:
             pe_score = max(0, 100 - ((pe - 15) / screening_config.max_pe_ratio) * 100)
         else:
@@ -638,11 +638,11 @@ class DataManager:
         scores['financial'] = financial_score * scoring_config.financial_weight
         
         # 4. Technical score (25%)
-        beta = fundamentals.get('beta', 1.0)
+        beta = fundamentals.get('beta') or 1.0
         beta_score = max(0, 100 - ((beta - 0.5) / screening_config.max_beta) * 100)
-        
-        short_interest = fundamentals.get('short_percent', 0)
-        short_score = max(0, 100 - (short_interest / screening_config.max_short_interest) * 100)
+
+        short_interest = fundamentals.get('short_percent') or 0
+        short_score = max(0, 100 - (short_interest / screening_config.max_short_interest) * 100) if screening_config.max_short_interest > 0 else 100
         
         technical_score = (beta_score + short_score) / 2
         scores['technical'] = technical_score * scoring_config.technical_weight
