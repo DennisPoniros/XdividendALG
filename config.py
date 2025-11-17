@@ -378,6 +378,40 @@ monte_carlo_config = MonteCarloConfig()
 # UTILITY FUNCTIONS
 # ============================================================================
 
+def use_relaxed_screening():
+    """
+    Switch to relaxed screening criteria for testing/debugging
+    Helps identify if strict filters are blocking all candidates
+    """
+    global screening_config
+
+    screening_config.min_dividend_yield = 0.01  # 1% (was 2%)
+    screening_config.max_dividend_yield = 0.15  # 15% (was 8%)
+    screening_config.min_market_cap = 500e6  # $500M (was $1B)
+    screening_config.min_avg_volume = 100_000  # 100k (was 500k)
+    screening_config.min_quality_score = 50.0  # 50 (was 70)
+    screening_config.max_acceptable_payout = 1.0  # 100% (was 80%)
+    screening_config.max_debt_to_equity = 1.0  # 1.0 (was 0.5)
+    screening_config.min_roe = 0.05  # 5% (was 12%)
+    screening_config.max_pe_ratio = 40.0  # 40 (was 25)
+    screening_config.max_beta = 2.0  # 2.0 (was 1.2)
+
+    print("✅ Switched to RELAXED screening criteria")
+    print(f"   Min Quality Score: {screening_config.min_quality_score}")
+    print(f"   Min Dividend Yield: {screening_config.min_dividend_yield*100:.1f}%")
+    print(f"   Min ROE: {screening_config.min_roe*100:.1f}%")
+
+def use_strict_screening():
+    """
+    Restore strict screening criteria (default production settings)
+    """
+    global screening_config
+    screening_config = ScreeningConfig()
+    print("✅ Switched to STRICT screening criteria")
+    print(f"   Min Quality Score: {screening_config.min_quality_score}")
+    print(f"   Min Dividend Yield: {screening_config.min_dividend_yield*100:.1f}%")
+    print(f"   Min ROE: {screening_config.min_roe*100:.1f}%")
+
 def validate_config():
     """Validate that all configurations are consistent"""
     errors = []

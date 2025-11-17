@@ -485,84 +485,103 @@ class DataManager:
             return pd.DataFrame()
         
         print(f"🔍 Screening {len(candidates)} dividend candidates...")
-        
+
         # Get fundamentals for each candidate
         screened_stocks = []
-        
+        failed_reasons = {}
+
         for idx, row in candidates.iterrows():
             ticker = row['ticker']
-            
+
             # Get fundamentals
             fundamentals = self.get_fundamentals(ticker)
-            
+
             if not fundamentals:
+                failed_reasons[ticker] = "No fundamentals data"
                 continue
-            
-            # Apply filters
-            if not self._passes_screening_filters(fundamentals, row):
+
+            # Apply filters (returns tuple: passed, reason)
+            passed, reason = self._passes_screening_filters(fundamentals, row)
+            if not passed:
+                failed_reasons[ticker] = reason
                 continue
-            
+
             # Calculate quality score
             quality_score = self._calculate_quality_score(fundamentals, row)
-            
+
             if quality_score >= screening_config.min_quality_score:
                 screened_stocks.append({
                     **row,
                     'quality_score': quality_score,
                     **fundamentals
                 })
-        
+            else:
+                failed_reasons[ticker] = f"Quality score {quality_score:.1f} < {screening_config.min_quality_score}"
+
         result = pd.DataFrame(screened_stocks)
-        
+
         if len(result) > 0:
             result = result.sort_values('quality_score', ascending=False)
             print(f"✅ {len(result)} stocks passed screening")
         else:
             print("⚠️  No stocks passed screening criteria")
+            # Show why stocks failed
+            if failed_reasons:
+                print("\n📋 Screening failures:")
+                for ticker, reason in list(failed_reasons.items())[:10]:  # Show first 10
+                    print(f"   {ticker}: {reason}")
         
         return result
     
-    def _passes_screening_filters(self, fundamentals: Dict, div_info: pd.Series) -> bool:
-        """Check if stock passes all screening filters"""
-        
+    def _passes_screening_filters(self, fundamentals: Dict, div_info: pd.Series) -> tuple:
+        """
+        Check if stock passes all screening filters
+
+        Returns:
+            tuple: (passed: bool, reason: str)
+        """
+
         # Market cap
-        if fundamentals.get('market_cap', 0) < screening_config.min_market_cap:
-            return False
-        
+        market_cap = fundamentals.get('market_cap', 0)
+        if market_cap < screening_config.min_market_cap:
+            return False, f"Market cap ${market_cap/1e9:.2f}B < ${screening_config.min_market_cap/1e9:.1f}B"
+
         # Volume
-        if fundamentals.get('avg_volume', 0) < screening_config.min_avg_volume:
-            return False
-        
+        volume = fundamentals.get('avg_volume', 0)
+        if volume < screening_config.min_avg_volume:
+            return False, f"Volume {volume:,} < {screening_config.min_avg_volume:,}"
+
         # Dividend yield
-        if div_info.get('yield', 0) < screening_config.min_dividend_yield:
-            return False
-        if div_info.get('yield', 0) > screening_config.max_dividend_yield:
-            return False
-        
+        div_yield = div_info.get('yield', 0)
+        if div_yield < screening_config.min_dividend_yield:
+            return False, f"Div yield {div_yield*100:.2f}% < {screening_config.min_dividend_yield*100:.1f}%"
+        if div_yield > screening_config.max_dividend_yield:
+            return False, f"Div yield {div_yield*100:.2f}% > {screening_config.max_dividend_yield*100:.1f}%"
+
         # Payout ratio
         payout = fundamentals.get('payout_ratio', 0)
         if payout > screening_config.max_acceptable_payout:
-            return False
-        
+            return False, f"Payout ratio {payout*100:.1f}% > {screening_config.max_acceptable_payout*100:.1f}%"
+
         # Financial health
         debt_to_equity = fundamentals.get('debt_to_equity')
         if debt_to_equity and debt_to_equity > screening_config.max_debt_to_equity:
-            return False
-        
+            return False, f"Debt/Equity {debt_to_equity:.2f} > {screening_config.max_debt_to_equity:.2f}"
+
         roe = fundamentals.get('roe', 0)
         if roe < screening_config.min_roe:
-            return False
+            return False, f"ROE {roe*100:.1f}% < {screening_config.min_roe*100:.1f}%"
         
         pe = fundamentals.get('pe_ratio', 0)
         if pe > screening_config.max_pe_ratio and pe > 0:
-            return False
-        
+            return False, f"P/E {pe:.1f} > {screening_config.max_pe_ratio:.1f}"
+
         # Beta
         beta = fundamentals.get('beta', 1.0)
         if beta > screening_config.max_beta:
-            return False
-        
-        return True
+            return False, f"Beta {beta:.2f} > {screening_config.max_beta:.2f}"
+
+        return True, "Passed all filters"
     
     def _calculate_quality_score(self, fundamentals: Dict, div_info: pd.Series) -> float:
         """
