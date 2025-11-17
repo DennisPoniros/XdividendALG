@@ -45,7 +45,9 @@ class DividendCaptureStrategy:
         current_dt = pd.to_datetime(current_date).tz_localize(None)
         
         print(f"\n🎯 Generating entry signals for {len(screened_stocks)} candidates...")
-        
+
+        entry_filter_failures = {}
+
         for idx, row in screened_stocks.iterrows():
             ticker = row['ticker']
 
@@ -56,13 +58,16 @@ class DividendCaptureStrategy:
 
             min_history = TECHNICAL_ANALYSIS_CONSTANTS['MIN_PRICE_HISTORY_DAYS']
             if len(prices) < min_history:  # Need sufficient history
+                entry_filter_failures[ticker] = f"Insufficient history ({len(prices)} < {min_history})"
                 continue
-            
+
             # Calculate technical indicators
             prices = self.dm.calculate_technical_indicators(prices)
-            
+
             # Apply entry filters
-            if not self._passes_entry_filters(prices, row):
+            passed, reason = self._passes_entry_filters(prices, row)
+            if not passed:
+                entry_filter_failures[ticker] = reason.split(': ', 1)[1] if ': ' in reason else reason
                 continue
             
             # Calculate entry price
@@ -108,50 +113,62 @@ class DividendCaptureStrategy:
         
         # Sort by expected return
         signals = sorted(signals, key=lambda x: x['expected_return'], reverse=True)
-        
+
         print(f"✅ Generated {len(signals)} entry signals")
-        
+
+        # Show why stocks failed entry filters
+        if len(signals) == 0 and entry_filter_failures:
+            print("\n📋 Entry filter failures:")
+            for ticker, reason in list(entry_filter_failures.items())[:10]:  # Show first 10
+                print(f"   {ticker}: {reason}")
+
         return signals
     
-    def _passes_entry_filters(self, prices: pd.DataFrame, stock_info: pd.Series) -> bool:
+    def _passes_entry_filters(self, prices: pd.DataFrame, stock_info: pd.Series) -> tuple:
         """
         Check if stock passes entry filters
+
+        Returns:
+            tuple: (passed: bool, reason: str)
         """
+        ticker = stock_info.get('ticker', 'UNKNOWN')
+
         if len(prices) < 20:
-            return False
+            return False, f"{ticker}: Insufficient price history ({len(prices)} < 20)"
 
         latest = prices.iloc[-1]
 
         # RSI filter (always apply basic RSI check from screening config)
         rsi = latest['rsi_14']
         if pd.isna(rsi) or rsi < screening_config.min_rsi or rsi > screening_config.max_rsi:
-            return False
+            return False, f"{ticker}: RSI {rsi:.1f} outside range [{screening_config.min_rsi}, {screening_config.max_rsi}]"
 
         # Z-score filter (mean reversion signal)
         if entry_config.use_z_score_filter:
             z_score = latest['z_score']
             if pd.isna(z_score):
-                return False
+                return False, f"{ticker}: Z-score is NaN"
             if z_score < entry_config.z_score_min or z_score > entry_config.z_score_max:
-                return False
-        
+                return False, f"{ticker}: Z-score {z_score:.2f} outside range [{entry_config.z_score_min}, {entry_config.z_score_max}]"
+
         # Momentum filter
         if entry_config.require_positive_momentum:
             momentum = latest['momentum_20']
             if pd.isna(momentum) or momentum <= 0:
-                return False
-        
+                return False, f"{ticker}: Negative momentum {momentum*100:.2f}%"
+
         # Volatility filter
         if entry_config.use_volatility_filter:
             volatility = latest['volatility_20']
             if pd.isna(volatility) or volatility > entry_config.max_realized_vol:
-                return False
-        
+                return False, f"{ticker}: Volatility {volatility*100:.1f}% > {entry_config.max_realized_vol*100:.1f}%"
+
         # Days to ex-div must be in preferred window
-        if stock_info['days_to_ex_div'] not in entry_config.preferred_entry_days:
-            return False
-        
-        return True
+        days_to_ex = stock_info['days_to_ex_div']
+        if days_to_ex not in entry_config.preferred_entry_days:
+            return False, f"{ticker}: Days to ex-div {days_to_ex} not in preferred window {entry_config.preferred_entry_days}"
+
+        return True, "Passed all filters"
     
     def _calculate_expected_return(self, price: float, stock_info: pd.Series,
                                    mr_params: Dict, prices: pd.DataFrame) -> float:
