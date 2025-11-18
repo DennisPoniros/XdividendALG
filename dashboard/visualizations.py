@@ -676,6 +676,489 @@ class DashboardVisualizations:
 
         return fig
 
+    def plot_monte_carlo_distribution(
+        self,
+        simulation_results: Dict,
+        metric: str = 'equity',
+        title: str = "Monte Carlo Simulation Results"
+    ) -> go.Figure:
+        """
+        Plot Monte Carlo simulation distribution.
+
+        Args:
+            simulation_results: Results from Monte Carlo simulation
+            metric: 'equity', 'drawdown', or 'sharpe'
+            title: Chart title
+
+        Returns:
+            Plotly figure
+        """
+        if metric == 'equity':
+            data = simulation_results.get('final_equities', [])
+            actual_value = simulation_results.get('actual_equity', 0)
+            xlabel = "Final Equity ($)"
+        elif metric == 'drawdown':
+            data = simulation_results.get('max_drawdowns', []) * 100  # Convert to %
+            actual_value = simulation_results.get('actual_max_dd', 0) * 100
+            xlabel = "Max Drawdown (%)"
+        elif metric == 'sharpe':
+            data = simulation_results.get('sharpe_ratios', [])
+            actual_value = simulation_results.get('actual_sharpe', 0)
+            xlabel = "Sharpe Ratio"
+        else:
+            return self._empty_chart(f"Unknown metric: {metric}")
+
+        if len(data) == 0:
+            return self._empty_chart("No simulation data available")
+
+        fig = go.Figure()
+
+        # Histogram
+        fig.add_trace(go.Histogram(
+            x=data,
+            nbinsx=50,
+            name='Simulated',
+            marker_color=self.colors['neutral'],
+            opacity=0.7,
+            hovertemplate='<b>Range:</b> %{x}<br>' +
+                          '<b>Frequency:</b> %{y}<br>' +
+                          '<extra></extra>'
+        ))
+
+        # Add actual value line
+        fig.add_vline(
+            x=actual_value,
+            line_dash="dash",
+            line_color=self.colors['profit'],
+            line_width=3,
+            annotation_text=f"Actual: {actual_value:,.2f}",
+            annotation_position="top"
+        )
+
+        # Add percentile lines
+        p5 = np.percentile(data, 5)
+        p95 = np.percentile(data, 95)
+
+        fig.add_vline(
+            x=p5,
+            line_dash="dot",
+            line_color="orange",
+            opacity=0.5,
+            annotation_text="5th %ile",
+            annotation_position="bottom left"
+        )
+
+        fig.add_vline(
+            x=p95,
+            line_dash="dot",
+            line_color="orange",
+            opacity=0.5,
+            annotation_text="95th %ile",
+            annotation_position="bottom right"
+        )
+
+        fig.update_layout(
+            title=title,
+            xaxis_title=xlabel,
+            yaxis_title="Frequency",
+            template=self.theme,
+            height=500,
+            showlegend=False,
+        )
+
+        return fig
+
+    def plot_monte_carlo_percentiles(
+        self,
+        simulation_results: Dict,
+        title: str = "Monte Carlo Percentile Analysis"
+    ) -> go.Figure:
+        """
+        Plot percentile comparison for multiple metrics.
+
+        Args:
+            simulation_results: Results from Monte Carlo simulation
+            title: Chart title
+
+        Returns:
+            Plotly figure
+        """
+        metrics = ['Equity', 'Sharpe', 'Drawdown']
+        percentiles = ['5th', '25th', '50th', '75th', '95th']
+
+        # Get data for each metric
+        equity_pcts = simulation_results.get('equity_percentiles', {})
+        sharpe_pcts = simulation_results.get('sharpe_percentiles', {})
+        dd_pcts = simulation_results.get('drawdown_percentiles', {})
+
+        # Normalize for comparison (0-100 scale)
+        def normalize(values, reverse=False):
+            min_val = min(values)
+            max_val = max(values)
+            if max_val == min_val:
+                return [50] * len(values)
+            normalized = [(v - min_val) / (max_val - min_val) * 100 for v in values]
+            if reverse:
+                normalized = [100 - v for v in normalized]
+            return normalized
+
+        equity_vals = [equity_pcts.get(p, 0) for p in percentiles]
+        sharpe_vals = [sharpe_pcts.get(p, 0) for p in percentiles]
+        dd_vals = [abs(dd_pcts.get(p, 0)) for p in percentiles]
+
+        fig = make_subplots(
+            rows=1, cols=3,
+            subplot_titles=('Final Equity', 'Sharpe Ratio', 'Max Drawdown'),
+            specs=[[{"type": "bar"}, {"type": "bar"}, {"type": "bar"}]]
+        )
+
+        # Equity
+        fig.add_trace(
+            go.Bar(
+                x=percentiles,
+                y=equity_vals,
+                name='Equity',
+                marker_color=self.colors['profit'],
+                text=[f'${v:,.0f}' for v in equity_vals],
+                textposition='auto',
+            ),
+            row=1, col=1
+        )
+
+        # Sharpe
+        fig.add_trace(
+            go.Bar(
+                x=percentiles,
+                y=sharpe_vals,
+                name='Sharpe',
+                marker_color=self.colors['neutral'],
+                text=[f'{v:.2f}' for v in sharpe_vals],
+                textposition='auto',
+            ),
+            row=1, col=2
+        )
+
+        # Drawdown
+        fig.add_trace(
+            go.Bar(
+                x=percentiles,
+                y=dd_vals,
+                name='Drawdown',
+                marker_color=self.colors['loss'],
+                text=[f'{v:.1f}%' for v in dd_vals],
+                textposition='auto',
+            ),
+            row=1, col=3
+        )
+
+        fig.update_layout(
+            title=title,
+            template=self.theme,
+            height=400,
+            showlegend=False,
+        )
+
+        return fig
+
+    def plot_cost_attribution(
+        self,
+        cost_attribution: Dict,
+        title: str = "Cost Attribution Analysis"
+    ) -> go.Figure:
+        """
+        Plot cost breakdown pie chart and waterfall.
+
+        Args:
+            cost_attribution: Results from cost attribution analysis
+            title: Chart title
+
+        Returns:
+            Plotly figure
+        """
+        total_slippage = cost_attribution.get('total_slippage', 0)
+        total_fees = cost_attribution.get('total_fees', 0)
+        total_commission = cost_attribution.get('total_commission', 0)
+
+        if total_slippage + total_fees + total_commission == 0:
+            return self._empty_chart("No cost data available")
+
+        # Pie chart of cost breakdown
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=('Cost Components', 'Impact on Returns'),
+            specs=[[{"type": "pie"}, {"type": "bar"}]]
+        )
+
+        # Cost components pie
+        fig.add_trace(
+            go.Pie(
+                labels=['Slippage', 'Fees', 'Commission'],
+                values=[total_slippage, total_fees, total_commission],
+                marker_colors=[self.colors['loss'], self.colors['benchmark'], '#ff69b4'],
+                hovertemplate='<b>%{label}</b><br>' +
+                              'Amount: $%{value:,.2f}<br>' +
+                              'Percentage: %{percent}<br>' +
+                              '<extra></extra>'
+            ),
+            row=1, col=1
+        )
+
+        # Impact waterfall
+        gross_pnl = cost_attribution.get('gross_pnl', 0)
+        net_pnl = cost_attribution.get('net_pnl', 0)
+        total_costs = cost_attribution.get('total_costs', 0)
+
+        fig.add_trace(
+            go.Waterfall(
+                x=['Gross P&L', 'Slippage', 'Fees', 'Commission', 'Net P&L'],
+                y=[gross_pnl, -total_slippage, -total_fees, -total_commission, net_pnl],
+                measure=['absolute', 'relative', 'relative', 'relative', 'total'],
+                text=[f'${gross_pnl:,.0f}', f'-${total_slippage:,.0f}',
+                      f'-${total_fees:,.0f}', f'-${total_commission:,.0f}', f'${net_pnl:,.0f}'],
+                textposition='auto',
+                connector={"line": {"color": "gray"}},
+            ),
+            row=1, col=2
+        )
+
+        fig.update_layout(
+            title=title,
+            template=self.theme,
+            height=500,
+            showlegend=False,
+        )
+
+        return fig
+
+    def plot_cost_by_ticker(
+        self,
+        cost_attribution: Dict,
+        top_n: int = 10,
+        title: str = "Cost Attribution by Ticker"
+    ) -> go.Figure:
+        """
+        Plot costs by ticker.
+
+        Args:
+            cost_attribution: Results from cost attribution analysis
+            top_n: Number of tickers to show
+            title: Chart title
+
+        Returns:
+            Plotly figure
+        """
+        ticker_analysis = cost_attribution.get('ticker_analysis', {})
+
+        if not ticker_analysis:
+            return self._empty_chart("No ticker cost data available")
+
+        # Extract top tickers by cost
+        tickers = list(ticker_analysis.keys())[:top_n]
+        costs = [ticker_analysis[t]['total_costs'] for t in tickers]
+        cost_pcts = [ticker_analysis[t]['cost_as_pct_gross'] for t in tickers]
+
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=('Total Costs', 'Costs as % of Gross P&L'),
+        )
+
+        # Total costs
+        fig.add_trace(
+            go.Bar(
+                x=tickers,
+                y=costs,
+                name='Total Costs',
+                marker_color=self.colors['loss'],
+                text=[f'${c:,.0f}' for c in costs],
+                textposition='auto',
+            ),
+            row=1, col=1
+        )
+
+        # Cost percentage
+        fig.add_trace(
+            go.Bar(
+                x=tickers,
+                y=cost_pcts,
+                name='Cost %',
+                marker_color=self.colors['benchmark'],
+                text=[f'{p:.1f}%' for p in cost_pcts],
+                textposition='auto',
+            ),
+            row=1, col=2
+        )
+
+        fig.update_xaxes(title_text="Ticker", row=1, col=1)
+        fig.update_xaxes(title_text="Ticker", row=1, col=2)
+        fig.update_yaxes(title_text="Cost ($)", row=1, col=1)
+        fig.update_yaxes(title_text="Cost (%)", row=1, col=2)
+
+        fig.update_layout(
+            title=title,
+            template=self.theme,
+            height=500,
+            showlegend=False,
+        )
+
+        return fig
+
+    def plot_winlose_attribution(
+        self,
+        winlose_attribution: Dict,
+        title: str = "Win/Loss Attribution"
+    ) -> go.Figure:
+        """
+        Plot win/loss attribution by various factors.
+
+        Args:
+            winlose_attribution: Results from win/loss attribution analysis
+            title: Chart title
+
+        Returns:
+            Plotly figure
+        """
+        by_ticker = winlose_attribution.get('by_ticker', pd.DataFrame())
+
+        if by_ticker.empty:
+            return self._empty_chart("No win/loss attribution data available")
+
+        # Top 10 tickers by total P&L
+        top_10 = by_ticker.head(10)
+
+        tickers = top_10.index.tolist()
+        total_pnls = top_10['total_pnl'].values
+        win_rates = top_10['win_rate'].values
+
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=('Total P&L by Ticker', 'Win Rate by Ticker'),
+            specs=[[{"type": "bar"}, {"type": "bar"}]]
+        )
+
+        # P&L bars
+        colors_pnl = [self.colors['profit'] if p > 0 else self.colors['loss'] for p in total_pnls]
+
+        fig.add_trace(
+            go.Bar(
+                x=tickers,
+                y=total_pnls,
+                marker_color=colors_pnl,
+                text=[f'${p:,.0f}' for p in total_pnls],
+                textposition='auto',
+                name='P&L',
+            ),
+            row=1, col=1
+        )
+
+        # Win rate bars
+        colors_wr = [self.colors['profit'] if w > 50 else self.colors['loss'] for w in win_rates]
+
+        fig.add_trace(
+            go.Bar(
+                x=tickers,
+                y=win_rates,
+                marker_color=colors_wr,
+                text=[f'{w:.1f}%' for w in win_rates],
+                textposition='auto',
+                name='Win Rate',
+            ),
+            row=1, col=2
+        )
+
+        # Add 50% reference line to win rate
+        fig.add_hline(y=50, line_dash="dash", line_color="white", opacity=0.5, row=1, col=2)
+
+        fig.update_xaxes(title_text="Ticker", row=1, col=1)
+        fig.update_xaxes(title_text="Ticker", row=1, col=2)
+        fig.update_yaxes(title_text="P&L ($)", row=1, col=1)
+        fig.update_yaxes(title_text="Win Rate (%)", row=1, col=2)
+
+        fig.update_layout(
+            title=title,
+            template=self.theme,
+            height=500,
+            showlegend=False,
+        )
+
+        return fig
+
+    def plot_attribution_by_exit_reason(
+        self,
+        winlose_attribution: Dict,
+        title: str = "Attribution by Exit Reason"
+    ) -> go.Figure:
+        """
+        Plot performance attribution by exit reason.
+
+        Args:
+            winlose_attribution: Results from win/loss attribution analysis
+            title: Chart title
+
+        Returns:
+            Plotly figure
+        """
+        by_exit_reason = winlose_attribution.get('by_exit_reason', pd.DataFrame())
+
+        if by_exit_reason.empty:
+            return self._empty_chart("No exit reason data available")
+
+        exit_reasons = by_exit_reason.index.tolist()
+        total_pnls = by_exit_reason['total_pnl'].values
+        trade_counts = by_exit_reason['trade_count'].values
+        win_rates = by_exit_reason['win_rate'].values
+
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=('P&L by Exit Reason', 'Win Rate by Exit Reason'),
+            vertical_spacing=0.15
+        )
+
+        # P&L by exit reason
+        colors_pnl = [self.colors['profit'] if p > 0 else self.colors['loss'] for p in total_pnls]
+
+        fig.add_trace(
+            go.Bar(
+                x=exit_reasons,
+                y=total_pnls,
+                marker_color=colors_pnl,
+                text=[f'${p:,.0f}<br>({int(c)} trades)' for p, c in zip(total_pnls, trade_counts)],
+                textposition='auto',
+                name='P&L',
+            ),
+            row=1, col=1
+        )
+
+        # Win rate
+        colors_wr = [self.colors['profit'] if w > 50 else self.colors['loss'] for w in win_rates]
+
+        fig.add_trace(
+            go.Bar(
+                x=exit_reasons,
+                y=win_rates,
+                marker_color=colors_wr,
+                text=[f'{w:.1f}%' for w in win_rates],
+                textposition='auto',
+                name='Win Rate',
+            ),
+            row=2, col=1
+        )
+
+        # Add 50% reference line
+        fig.add_hline(y=50, line_dash="dash", line_color="white", opacity=0.5, row=2, col=1)
+
+        fig.update_xaxes(title_text="Exit Reason", row=2, col=1)
+        fig.update_yaxes(title_text="P&L ($)", row=1, col=1)
+        fig.update_yaxes(title_text="Win Rate (%)", row=2, col=1)
+
+        fig.update_layout(
+            title=title,
+            template=self.theme,
+            height=700,
+            showlegend=False,
+        )
+
+        return fig
+
     def _empty_chart(self, message: str) -> go.Figure:
         """Create empty chart with message."""
         fig = go.Figure()

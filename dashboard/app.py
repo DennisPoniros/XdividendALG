@@ -24,6 +24,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 from dashboard.data_interface import BacktestDataInterface
 from dashboard.metrics import MetricsCalculator
 from dashboard.visualizations import DashboardVisualizations
+from dashboard.monte_carlo import MonteCarloSimulator
+from dashboard.attribution import AttributionAnalyzer
 
 
 # Page configuration
@@ -69,6 +71,8 @@ class BacktestDashboard:
         self.data_interface = None
         self.metrics_calculator = MetricsCalculator()
         self.visualizations = DashboardVisualizations(theme='plotly_dark')
+        self.monte_carlo = MonteCarloSimulator(n_simulations=1000)
+        self.attribution_analyzer = AttributionAnalyzer()
 
         # Initialize session state
         if 'mode' not in st.session_state:
@@ -109,11 +113,13 @@ class BacktestDashboard:
         )
 
         # Main dashboard tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "📊 Overview",
             "📈 Performance",
             "💼 Trades",
             "🎯 Risk Analysis",
+            "🎲 Monte Carlo",
+            "📉 Attribution",
             "⚙️ Configuration"
         ])
 
@@ -130,6 +136,12 @@ class BacktestDashboard:
             self.render_risk_tab(equity_curve, returns, metrics, position_values)
 
         with tab5:
+            self.render_monte_carlo_tab(trades)
+
+        with tab6:
+            self.render_attribution_tab(trades)
+
+        with tab7:
             self.render_configuration_tab()
 
     def render_sidebar(self):
@@ -513,6 +525,345 @@ class BacktestDashboard:
         with col2:
             st.write(f"**Duration:** {metrics.get('max_drawdown_duration_days', 0):.0f} days")
             st.write(f"**Underwater %:** {metrics.get('underwater_pct', 0):.1f}%")
+
+    def render_monte_carlo_tab(self, trades):
+        """Render Monte Carlo simulation tab."""
+        st.header("🎲 Monte Carlo Simulation")
+
+        st.markdown("""
+        Monte Carlo simulation resamples trades to test strategy robustness.
+        This helps determine if results are due to skill or luck.
+        """)
+
+        if not trades or len([t for t in trades if t.get('action') == 'EXIT']) < 10:
+            st.warning("⚠️ Need at least 10 closed trades for meaningful Monte Carlo simulation.")
+            return
+
+        # Simulation controls
+        col1, col2 = st.columns([3, 1])
+
+        with col1:
+            st.subheader("Simulation Parameters")
+
+        with col2:
+            if st.button("▶️ Run Simulation", type="primary"):
+                st.session_state.run_mc = True
+
+        n_sims = st.slider(
+            "Number of Simulations",
+            min_value=100,
+            max_value=10000,
+            value=1000,
+            step=100,
+            help="More simulations = more accurate but slower"
+        )
+
+        # Run simulation
+        if st.session_state.get('run_mc', False):
+            with st.spinner("Running Monte Carlo simulation..."):
+                self.monte_carlo.n_simulations = n_sims
+                simulation_results = self.monte_carlo.run_simulation(trades)
+
+                if 'error' in simulation_results:
+                    st.error(simulation_results['error'])
+                    return
+
+                # Robustness assessment
+                robustness = self.monte_carlo.assess_robustness(simulation_results)
+
+                st.markdown("---")
+                st.subheader("Robustness Assessment")
+
+                # Display robustness score
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    score = robustness['robustness_score']
+                    color = '🟢' if score >= 80 else '🟡' if score >= 60 else '🟠' if score >= 40 else '🔴'
+                    st.metric(
+                        "Robustness Score",
+                        f"{score}/100 {color}",
+                        delta=robustness['assessment'].split(' - ')[0]
+                    )
+
+                with col2:
+                    st.metric(
+                        "Probability of Profit",
+                        f"{simulation_results['prob_profit']:.1%}",
+                        delta="Good" if simulation_results['prob_profit'] > 0.75 else "Poor"
+                    )
+
+                with col3:
+                    st.metric(
+                        "P(Sharpe > 1)",
+                        f"{simulation_results['prob_sharpe_gt_1']:.1%}",
+                        delta="Good" if simulation_results['prob_sharpe_gt_1'] > 0.5 else "Poor"
+                    )
+
+                # Robustness factors
+                st.markdown("**Assessment Factors:**")
+                for factor in robustness['factors']:
+                    if 'WARNING' in factor:
+                        st.warning(factor.replace('WARNING: ', '⚠️ '))
+                    else:
+                        st.success(f"✓ {factor}")
+
+                st.markdown("---")
+                st.subheader("Simulation Results")
+
+                # Distribution plots
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    fig_equity = self.visualizations.plot_monte_carlo_distribution(
+                        simulation_results,
+                        metric='equity',
+                        title="Final Equity Distribution"
+                    )
+                    st.plotly_chart(fig_equity, use_container_width=True)
+
+                with col2:
+                    fig_sharpe = self.visualizations.plot_monte_carlo_distribution(
+                        simulation_results,
+                        metric='sharpe',
+                        title="Sharpe Ratio Distribution"
+                    )
+                    st.plotly_chart(fig_sharpe, use_container_width=True)
+
+                # Drawdown distribution
+                fig_dd = self.visualizations.plot_monte_carlo_distribution(
+                    simulation_results,
+                    metric='drawdown',
+                    title="Max Drawdown Distribution"
+                )
+                st.plotly_chart(fig_dd, use_container_width=True)
+
+                # Percentile analysis
+                st.subheader("Percentile Analysis")
+                fig_percentiles = self.visualizations.plot_monte_carlo_percentiles(simulation_results)
+                st.plotly_chart(fig_percentiles, use_container_width=True)
+
+                # Detailed statistics
+                st.subheader("Detailed Statistics")
+
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.markdown("**Final Equity Percentiles**")
+                    eq_pct = simulation_results['equity_percentiles']
+                    st.write(f"5th: ${eq_pct['5th']:,.0f}")
+                    st.write(f"25th: ${eq_pct['25th']:,.0f}")
+                    st.write(f"50th (Median): ${eq_pct['50th']:,.0f}")
+                    st.write(f"75th: ${eq_pct['75th']:,.0f}")
+                    st.write(f"95th: ${eq_pct['95th']:,.0f}")
+                    st.write(f"**Actual: ${simulation_results['actual_equity']:,.0f}**")
+                    st.write(f"Percentile Rank: {simulation_results['actual_equity_percentile']:.1f}%")
+
+                with col2:
+                    st.markdown("**Sharpe Ratio Percentiles**")
+                    sh_pct = simulation_results['sharpe_percentiles']
+                    st.write(f"5th: {sh_pct['5th']:.2f}")
+                    st.write(f"25th: {sh_pct['25th']:.2f}")
+                    st.write(f"50th (Median): {sh_pct['50th']:.2f}")
+                    st.write(f"75th: {sh_pct['75th']:.2f}")
+                    st.write(f"95th: {sh_pct['95th']:.2f}")
+                    st.write(f"**Actual: {simulation_results['actual_sharpe']:.2f}**")
+                    st.write(f"Percentile Rank: {simulation_results['actual_sharpe_percentile']:.1f}%")
+
+                with col3:
+                    st.markdown("**Probabilities**")
+                    st.write(f"Profit: {simulation_results['prob_profit']:.1%}")
+                    st.write(f"10% Return: {simulation_results['prob_10pct_return']:.1%}")
+                    st.write(f"20% Return: {simulation_results['prob_20pct_return']:.1%}")
+                    st.write(f"DD > -20%: {simulation_results['prob_drawdown_gt_20pct']:.1%}")
+                    st.write(f"Sharpe > 1: {simulation_results['prob_sharpe_gt_1']:.1%}")
+
+                st.markdown("---")
+                st.info("""
+                **Interpretation:**
+                - If actual results are in top 25% (75th percentile+), strategy is robust
+                - High probability of profit (>75%) indicates consistent performance
+                - Low result variability (low CV) suggests stable strategy
+                - If actual results rank low (<25th percentile), may have gotten lucky
+                """)
+
+        else:
+            st.info("👆 Click 'Run Simulation' to start Monte Carlo analysis")
+
+    def render_attribution_tab(self, trades):
+        """Render attribution analysis tab."""
+        st.header("📉 Performance Attribution")
+
+        st.markdown("""
+        Understand what drives your returns - costs, specific trades, timing, and exit decisions.
+        """)
+
+        if not trades or len([t for t in trades if t.get('action') == 'EXIT']) < 1:
+            st.warning("⚠️ No closed trades available for attribution analysis.")
+            return
+
+        # Run attribution analysis
+        cost_attribution = self.attribution_analyzer.analyze_cost_attribution(trades)
+        winlose_attribution = self.attribution_analyzer.analyze_win_lose_attribution(trades)
+
+        # Create sub-tabs for different attribution types
+        subtab1, subtab2 = st.tabs(["💰 Cost Attribution", "🎯 Win/Loss Attribution"])
+
+        with subtab1:
+            st.subheader("Cost Attribution Analysis")
+
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric(
+                    "Total Costs",
+                    f"${cost_attribution['total_costs']:,.2f}",
+                    delta=f"{cost_attribution['costs_as_pct_gross']:.1f}% of gross"
+                )
+
+            with col2:
+                st.metric(
+                    "Slippage",
+                    f"${cost_attribution['total_slippage']:,.2f}",
+                    delta=f"{cost_attribution['slippage_pct_of_costs']:.1f}% of costs"
+                )
+
+            with col3:
+                st.metric(
+                    "Fees",
+                    f"${cost_attribution['total_fees']:,.2f}",
+                    delta=f"{cost_attribution['fees_pct_of_costs']:.1f}% of costs"
+                )
+
+            with col4:
+                st.metric(
+                    "Commission",
+                    f"${cost_attribution['total_commission']:,.2f}",
+                    delta=f"{cost_attribution['commission_pct_of_costs']:.1f}% of costs"
+                )
+
+            # Cost breakdown charts
+            st.markdown("---")
+            st.subheader("Cost Breakdown")
+
+            fig_costs = self.visualizations.plot_cost_attribution(cost_attribution)
+            st.plotly_chart(fig_costs, use_container_width=True)
+
+            # Cost by ticker
+            st.subheader("Costs by Ticker")
+            fig_ticker_costs = self.visualizations.plot_cost_by_ticker(cost_attribution, top_n=10)
+            st.plotly_chart(fig_ticker_costs, use_container_width=True)
+
+            # Cost impact summary
+            st.markdown("---")
+            st.subheader("Cost Impact Summary")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("**Gross vs Net Performance**")
+                st.write(f"Gross P&L: ${cost_attribution['gross_pnl']:,.2f}")
+                st.write(f"Total Costs: -${cost_attribution['total_costs']:,.2f}")
+                st.write(f"Net P&L: ${cost_attribution['net_pnl']:,.2f}")
+                st.write(f"**Cost Impact: {cost_attribution['costs_as_pct_gross']:.2f}% of gross returns**")
+
+            with col2:
+                st.markdown("**Per Trade Costs**")
+                st.write(f"Avg Cost/Trade: ${cost_attribution['avg_cost_per_trade']:,.2f}")
+
+                if cost_attribution['costs_as_pct_gross'] > 20:
+                    st.error("⚠️ Costs are eating >20% of gross returns!")
+                elif cost_attribution['costs_as_pct_gross'] > 10:
+                    st.warning("⚠️ Costs are eating >10% of gross returns")
+                else:
+                    st.success("✓ Costs are reasonable (<10% of gross)")
+
+        with subtab2:
+            st.subheader("Win/Loss Attribution Analysis")
+
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric(
+                    "Total Trades",
+                    f"{winlose_attribution['total_trades']}"
+                )
+
+            with col2:
+                st.metric(
+                    "Win Rate",
+                    f"{winlose_attribution['win_rate']:.1f}%",
+                    delta="Good" if winlose_attribution['win_rate'] > 50 else "Poor"
+                )
+
+            with col3:
+                st.metric(
+                    "Winning Trades",
+                    f"{winlose_attribution['winning_trades']}",
+                    delta=f"{winlose_attribution['winning_trades']/winlose_attribution['total_trades']*100:.1f}%"
+                )
+
+            with col4:
+                st.metric(
+                    "Total P&L",
+                    f"${winlose_attribution['total_pnl']:,.2f}"
+                )
+
+            # Win/Loss by ticker
+            st.markdown("---")
+            st.subheader("Attribution by Ticker")
+            fig_winlose = self.visualizations.plot_winlose_attribution(winlose_attribution)
+            st.plotly_chart(fig_winlose, use_container_width=True)
+
+            # Attribution by exit reason
+            st.subheader("Attribution by Exit Reason")
+            fig_exit = self.visualizations.plot_attribution_by_exit_reason(winlose_attribution)
+            st.plotly_chart(fig_exit, use_container_width=True)
+
+            # Concentration analysis
+            st.markdown("---")
+            st.subheader("P&L Concentration")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                top10_pct = winlose_attribution['concentration_top10pct']
+                st.metric(
+                    "Top 10% of Trades",
+                    f"{top10_pct:.1f}%",
+                    delta=f"of total P&L"
+                )
+
+                if top10_pct > 80:
+                    st.warning("⚠️ Very concentrated - top 10% of trades drive >80% of returns")
+                elif top10_pct > 60:
+                    st.info("ℹ️ Moderately concentrated - top 10% drive >60% of returns")
+                else:
+                    st.success("✓ Well diversified returns")
+
+            with col2:
+                top20_pct = winlose_attribution['concentration_top20pct']
+                st.metric(
+                    "Top 20% of Trades",
+                    f"{top20_pct:.1f}%",
+                    delta="of total P&L"
+                )
+
+            # Detailed attribution table
+            st.markdown("---")
+            st.subheader("Detailed Attribution by Ticker")
+
+            by_ticker = winlose_attribution['by_ticker']
+            if not by_ticker.empty:
+                st.dataframe(
+                    by_ticker.head(20),
+                    use_container_width=True,
+                    height=400
+                )
+            else:
+                st.info("No ticker data available")
 
     def render_configuration_tab(self):
         """Render configuration interface."""
