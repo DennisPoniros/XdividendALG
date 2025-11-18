@@ -12,6 +12,14 @@ warnings.filterwarnings('ignore')
 
 from logger import get_logger
 
+# Import rate limiter (if available)
+try:
+    from rate_limiter import api_rate_limiters, retry_with_backoff
+    RATE_LIMITER_AVAILABLE = True
+except ImportError:
+    RATE_LIMITER_AVAILABLE = False
+    print("ℹ️  Rate limiter not available (rate_limiter.py missing)")
+
 try:
     import alpaca_trade_api as tradeapi
     ALPACA_AVAILABLE = True
@@ -91,6 +99,10 @@ class DataManager:
         
         for ticker in tickers:
             try:
+                # Rate limit yfinance calls
+                if RATE_LIMITER_AVAILABLE:
+                    api_rate_limiters.wait_for_yfinance()
+
                 stock = yf.Ticker(ticker)
                 
                 # Get dividend history
@@ -220,13 +232,28 @@ class DataManager:
         # Try Alpaca first, fallback to yfinance
         if self.alpaca_api:
             try:
-                barset = self.alpaca_api.get_bars(
-                    ticker,
-                    timeframe,
-                    start=start_date,
-                    end=end_date,
-                    adjustment='all'
-                ).df
+                # Rate limit and retry with backoff for Alpaca
+                if RATE_LIMITER_AVAILABLE:
+                    api_rate_limiters.wait_for_alpaca()
+
+                    def fetch_alpaca():
+                        return self.alpaca_api.get_bars(
+                            ticker,
+                            timeframe,
+                            start=start_date,
+                            end=end_date,
+                            adjustment='all'
+                        ).df
+
+                    barset = retry_with_backoff(fetch_alpaca, max_retries=3)
+                else:
+                    barset = self.alpaca_api.get_bars(
+                        ticker,
+                        timeframe,
+                        start=start_date,
+                        end=end_date,
+                        adjustment='all'
+                    ).df
 
                 if len(barset) > 0:
                     # Normalize timezone to avoid comparison issues
@@ -241,6 +268,10 @@ class DataManager:
         # Fallback to yfinance
         if YFINANCE_AVAILABLE:
             try:
+                # Rate limit yfinance calls
+                if RATE_LIMITER_AVAILABLE:
+                    api_rate_limiters.wait_for_yfinance()
+
                 stock = yf.Ticker(ticker)
                 df = stock.history(start=start_date, end=end_date)
                 if len(df) > 0:
@@ -268,8 +299,12 @@ class DataManager:
         """
         if not YFINANCE_AVAILABLE:
             return {}
-        
+
         try:
+            # Rate limit yfinance calls
+            if RATE_LIMITER_AVAILABLE:
+                api_rate_limiters.wait_for_yfinance()
+
             stock = yf.Ticker(ticker)
             info = stock.info
             
