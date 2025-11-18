@@ -38,9 +38,16 @@ def run_xdiv_ml_backtest():
     # Run backtest
     results = bt.run_backtest_with_training()
 
-    # Create output directory
+    # Create output directory (works on Windows and Linux)
+    # Try /mnt/user-data/outputs first (Linux), fallback to ./outputs (Windows)
     output_dir = '/mnt/user-data/outputs'
-    os.makedirs(output_dir, exist_ok=True)
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except (PermissionError, OSError):
+        # Fallback to local outputs directory
+        output_dir = os.path.join(os.path.dirname(__file__), 'outputs')
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"ℹ️  Using local output directory: {output_dir}")
 
     # Save results for dashboard
     print("\n📁 Saving results for dashboard...")
@@ -146,7 +153,10 @@ def compare_strategies():
     Compare old strategy vs new ML strategy (if both results exist)
     """
 
+    # Try both possible output directories
     output_dir = '/mnt/user-data/outputs'
+    if not os.path.exists(output_dir):
+        output_dir = os.path.join(os.path.dirname(__file__), 'outputs')
 
     # Check if both result files exist
     old_results_file = os.path.join(output_dir, 'backtest_results.pkl')
