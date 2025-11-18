@@ -9,15 +9,25 @@ from datetime import datetime
 
 from backtester_xdiv_ml import XDividendMLBacktester
 from analytics import PerformanceAnalytics
+from config_relaxed import use_relaxed_screening
 
 
 def run_xdiv_ml_backtest():
     """
     Run the X-Dividend ML strategy with training and testing
     Save results for dashboard viewing
+
+    NOTE: Uses RELAXED screening to allow sufficient trade opportunities
     """
 
+    # Use relaxed screening (fixes "only 2 trades" issue)
     print("\n" + "="*80)
+    print("⚙️  APPLYING RELAXED SCREENING CONFIGURATION")
+    print("="*80)
+    use_relaxed_screening()
+    print("="*80 + "\n")
+
+    print("="*80)
     print("🚀 X-DIVIDEND ML STRATEGY BACKTEST")
     print("="*80)
     print("\nThis backtest will:")
