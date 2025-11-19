@@ -144,7 +144,9 @@ class DataManager:
                             dividend_calendar.append({
                                 'ticker': ticker,
                                 'ex_date': date,
+                                'ex_dividend_date': date,  # For compatibility
                                 'amount': row['Dividends'],
+                                'dividend_amount': row['Dividends'],  # For compatibility
                                 'yield': div_yield  # Now properly annualized
                             })
             

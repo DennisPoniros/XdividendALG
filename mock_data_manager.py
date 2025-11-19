@@ -310,6 +310,125 @@ class MockDataManager:
 
         return upcoming
 
+    def get_current_price(self, ticker: str, date: str) -> Optional[float]:
+        """
+        Get current price for a ticker on a specific date.
+
+        Args:
+            ticker: Stock ticker
+            date: Date string (YYYY-MM-DD)
+
+        Returns:
+            Current price or None
+        """
+        try:
+            # Get price data around this date
+            date_dt = pd.to_datetime(date)
+            start = (date_dt - timedelta(days=5)).strftime('%Y-%m-%d')
+            end = (date_dt + timedelta(days=1)).strftime('%Y-%m-%d')
+
+            prices = self.get_stock_prices(ticker, start, end)
+
+            if len(prices) == 0:
+                return None
+
+            # Find closest date
+            prices['date_diff'] = abs(pd.to_datetime(prices['date']) - date_dt)
+            closest = prices.loc[prices['date_diff'].idxmin()]
+
+            return closest['close']
+        except:
+            return None
+
+    def calculate_technical_indicators(self, ticker: str, current_date: str,
+                                      lookback_days: int = 60) -> Dict:
+        """
+        Calculate technical indicators for strategy use.
+
+        Args:
+            ticker: Stock ticker
+            current_date: Current date
+            lookback_days: Days of history to use
+
+        Returns:
+            Dictionary with indicators
+        """
+        try:
+            # Get price history
+            end_date = current_date
+            start_date = (pd.to_datetime(current_date) - timedelta(days=lookback_days + 30)).strftime('%Y-%m-%d')
+
+            prices = self.get_stock_prices(ticker, start_date, end_date)
+
+            if len(prices) < 20:
+                return {}
+
+            # Calculate indicators on full DataFrame
+            prices_with_ind = self.calculate_technical_indicators_df(prices)
+
+            if len(prices_with_ind) == 0:
+                return {}
+
+            # Get latest values
+            latest = prices_with_ind.iloc[-1]
+
+            # Calculate ATR (Average True Range)
+            if 'high' in prices_with_ind.columns and 'low' in prices_with_ind.columns:
+                tr = prices_with_ind['high'] - prices_with_ind['low']
+                atr = tr.rolling(14).mean().iloc[-1]
+            else:
+                # Fallback: estimate from close volatility
+                atr = prices_with_ind['close'].pct_change().std() * prices_with_ind['close'].iloc[-1]
+
+            # Average volume
+            avg_volume = prices_with_ind['volume'].rolling(20).mean().iloc[-1] if 'volume' in prices_with_ind.columns else 1_000_000
+
+            return {
+                'z_score': latest.get('z_score', 0),
+                'rsi': latest.get('rsi_14', 50),
+                'atr': atr,
+                'current_volume': latest.get('volume', avg_volume),
+                'avg_volume': avg_volume,
+                'sma_20': latest.get('sma_20', latest['close']),
+                'volatility': latest.get('volatility_20', 0.02),
+            }
+        except Exception as e:
+            return {}
+
+    def calculate_technical_indicators_df(self, prices: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculate technical indicators on a price DataFrame (legacy method).
+
+        Args:
+            prices: DataFrame with OHLCV data
+
+        Returns:
+            DataFrame with added technical indicators
+        """
+        if len(prices) < 20:
+            return prices
+
+        df = prices.copy()
+
+        # Simple Moving Averages
+        df['sma_20'] = df['close'].rolling(20).mean()
+        df['sma_50'] = df['close'].rolling(50).mean()
+
+        # RSI
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / loss.replace(0, 0.0001)
+        df['rsi_14'] = 100 - (100 / (1 + rs))
+
+        # Z-Score (30-day)
+        df['z_score'] = (df['close'] - df['close'].rolling(30).mean()) / df['close'].rolling(30).std()
+
+        # Volatility
+        df['volatility_20'] = df['close'].pct_change().rolling(20).std()
+
+        return df
+
     def get_fundamentals(self, ticker: str) -> Optional[Dict]:
         """
         Mock fundamentals
@@ -328,6 +447,8 @@ class MockDataManager:
             'payout_ratio': np.random.uniform(0.3, 0.7),
             'roe': np.random.uniform(0.08, 0.20),
             'debt_to_equity': np.random.uniform(0.2, 0.8),
+            'avg_volume': np.random.uniform(500_000, 5_000_000),
+            'sector': self.sectors.get(ticker, 'Unknown'),
         }
 
 
