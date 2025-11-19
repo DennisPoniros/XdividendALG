@@ -17,13 +17,25 @@ def analyze_trade_log():
     print("🔍 BACKTEST DIAGNOSTIC ANALYSIS")
     print("="*80 + "\n")
 
-    # Find outputs directory
-    output_dir = Path('/mnt/user-data/outputs')
-    if not output_dir.exists():
-        output_dir = Path('outputs')
+    # Find outputs directory (platform-aware)
+    possible_dirs = [
+        Path('outputs'),  # Local to current directory
+        Path(__file__).parent / 'outputs',  # Relative to script
+        Path('/mnt/user-data/outputs'),  # Linux/server
+    ]
 
-    if not output_dir.exists():
+    output_dir = None
+    for dir_path in possible_dirs:
+        if dir_path.exists():
+            output_dir = dir_path
+            print(f"📂 Found output directory: {output_dir.absolute()}")
+            break
+
+    if output_dir is None:
         print("❌ No outputs directory found")
+        print("Searched in:")
+        for dir_path in possible_dirs:
+            print(f"  - {dir_path.absolute()}")
         return
 
     # Find trade log

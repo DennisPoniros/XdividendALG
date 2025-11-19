@@ -56,14 +56,15 @@ def run_simple_backtest():
     # Run backtest
     results = bt.run_backtest_with_training()
 
-    # Create output directory
-    output_dir = '/mnt/user-data/outputs'
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except (PermissionError, OSError):
-        output_dir = os.path.join(os.path.dirname(__file__), 'outputs')
-        os.makedirs(output_dir, exist_ok=True)
-        print(f"ℹ️  Using local output directory: {output_dir}")
+    # Create output directory (platform-aware)
+    # Use local outputs directory relative to script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.join(script_dir, 'outputs')
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Print ABSOLUTE path so user knows where to find files
+    abs_output_dir = os.path.abspath(output_dir)
+    print(f"\n📁 Output directory: {abs_output_dir}")
 
     # Save results
     print("\n📁 Saving results...")
