@@ -206,6 +206,44 @@ class StrategyRegistry:
             tags=["dividend", "machine-learning", "training", "fixed", "recommended"]
         ))
 
+        # Post-Dividend Dip Strategy (ALTERNATIVE APPROACH)
+        self.register(StrategyMetadata(
+            name="post_div_dip",
+            display_name="Post-Dividend Dip Buyer 🔄",
+            description="INVERSE approach: Buy AFTER ex-div when price drops, sell at mean reversion. Avoids dividend taxation (15-37%), captures same mean reversion with simpler tax treatment.",
+            version="1.0.0",
+            strategy_type="mean_reversion",
+            requires_training=False,
+            supports_live=True,
+            module_path="strategy_post_div_dip",
+            class_name="PostDividendDipStrategy",
+            backtester_path="backtester_post_div",
+            backtester_class="PostDivDipBacktester",
+            runner_path="run_post_div_backtest",
+            runner_function="run_post_div_backtest",
+            parameters={
+                "start_date": {
+                    "type": "date",
+                    "default": "2023-01-01",
+                    "description": "Backtest start date"
+                },
+                "end_date": {
+                    "type": "date",
+                    "default": "2024-10-31",
+                    "description": "Backtest end date"
+                },
+                "initial_capital": {
+                    "type": "float",
+                    "default": 100000,
+                    "min": 10000,
+                    "max": 10000000,
+                    "description": "Starting capital"
+                },
+            },
+            config_overrides={},
+            tags=["dividend", "mean-reversion", "tax-efficient", "alternative", "no-ml"]
+        ))
+
     def register(self, strategy: StrategyMetadata):
         """Register a new strategy."""
         self.strategies[strategy.name] = strategy
